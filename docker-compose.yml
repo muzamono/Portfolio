@@ -1,0 +1,83 @@
+# docker-compose.yml is the "blueprint" for your entire environment.
+# It tells Docker what services (containers) to spin up and how they connect.
+# Run with: docker-compose up -d
+
+services:
+
+  # --- DATABASE ---
+  # This is where your transformed data lands (the "Load" in ETL).
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: etl_user         # Username to connect with
+      POSTGRES_PASSWORD: etl_pass     # Password
+      POSTGRES_DB: etl_db             # Database name
+    ports:
+      - "5432:5432"                   # host_port:container_port
+    volumes:
+      - postgres_data:/var/lib/postgresql/data       # Persists data between restarts
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql  # Runs on first startup
+
+  # --- AIRFLOW METADATA DATABASE ---
+  # Airflow needs its own separate DB to track DAG runs, task states, logs etc.
+  # Do NOT mix this with your ETL data.
+  airflow_postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow_db_data:/var/lib/postgresql/data
+
+  # --- AIRFLOW SCHEDULER ---
+  # The scheduler reads your DAG files and decides WHEN to trigger tasks.
+  # It does NOT run the tasks itself — it hands them to the executor.
+  airflow_scheduler:
+    image: apache/airflow:2.9.1
+    depends_on:
+      - airflow_postgres
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow_postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'   # Hides built-in example DAGs
+      PYTHONPATH: /opt/airflow
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: etl_db
+      DB_USER: etl_user
+      DB_PASSWORD: etl_pass
+    volumes:
+      - ./dags:/opt/airflow/dags               # Your DAG files go here
+      - ./etl:/opt/airflow/etl                 # Your Python ETL logic goes here
+      - ./logs:/opt/airflow/logs
+    command: scheduler
+
+  # --- AIRFLOW WEBSERVER ---
+  # The UI you open in your browser to monitor DAG runs.
+  # Runs separately from the scheduler.
+  airflow_webserver:
+    image: apache/airflow:2.9.1
+    depends_on:
+      - airflow_postgres
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow_postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      PYTHONPATH: /opt/airflow
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: etl_db
+      DB_USER: etl_user
+      DB_PASSWORD: etl_pass
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./etl:/opt/airflow/etl
+      - ./logs:/opt/airflow/logs
+    ports:
+      - "8080:8080"                            # Access UI at http://localhost:8080
+    command: webserver
+
+volumes:
+  postgres_data:
+  airflow_db_data:
