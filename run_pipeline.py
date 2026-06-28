@@ -6,8 +6,9 @@
 from etl.extract import extract
 from etl.transform import transform
 from etl.load import load
+import time
 
-symbols = ["AAPL"]  # Start with just one symbol to conserve API requests
+symbols = ["AAPL", "NVDA"]  # Start with just one symbol to conserve API requests
 
 for symbol in symbols:
     print(f"\n--- Running pipeline for {symbol} ---")
@@ -17,8 +18,10 @@ for symbol in symbols:
     if extracted is None:
         print(f"[run_pipeline] Skipping {symbol} — extract failed (check rate limit or API key)")
         continue  # Move to next symbol instead of crashing
-
+    
     records = transform(extracted)
     load(records)
+
+    time.sleep(15)
 
 print("\n--- Pipeline run complete ---")
